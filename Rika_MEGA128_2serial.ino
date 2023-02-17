@@ -1,74 +1,76 @@
 #include "Arduino.h"
-// Le shiel Ethernet utilise les broches
-// 10 : SS pour Ethernet
-//  4 : SS pour Carte SD
+// Ethernet shield uses pins
+// 10 : SS    for Ethernet
+//  4 : SS    for SD Card
 // 50 : MISO
 // 51 : MOSI
 // 52 : SCK
-// 53 : SS  doit être configuré en output, bien que non utilisé par le shield W5100 sinon l'interface SPI ne foncionne pas
-//          d'après la doc Arduino officielle
+// 53 : SS    must be configured in output, although not used by the W5100 shield otherwise the SPI interface does not work
+//            according to the official Arduino doc
 //
 
-// attention, il faut utiliser la librairie Ethernet modifiée (sinon pas de hostname)
+// be careful, you must use the modified Ethernet library (otherwise no hostname)
 // https://github.com/technofreakz/Ethernet/archive/master.zip
 
 #include <Ethernet.h>
 #include <SPI.h>
-#define IPFIXE    // à commenter pour utiliser le DHCP
 
-// Serial : port USB : affiche les infos sur le fonctionnement
-// Serial1 : port RS232 : communique avec le poele RIKA
+#define IPFIXE    // to be commented out to use DHCP
+
+// Serial : USB port : displays operating information
+// Serial1 : RS232 port : communicates with the RIKA stove
 
 #define baudUSB 115200
 #define baudRIKA 38400
-#define DELAI_SAC 25000
+#define DELAY_SAC 25000
 
-#define port_serveur 10005
+#define server_port 10005
 
-#define bouton 9
+#define button 9
 #define led_comm 7
-#define led_erreur 5
+#define led_error 5
 #define led_sac 3      //13 pour les essais
 
-// PARAMETRES RESEAU ETHERNET
-// pour gagner de la place en mémoire, on n'utilisera pas les DNS
-// il faut donc fournir l'adresse IP des machines à joindre
+// ETHERNET NETWORK PARAMETERS
+// to save space in memory, we will not use the DNS
+// you must therefore provide the IP address of the machines to be contacted
 //
-// Pour augmenter le nombre de sac, on fait une requete http
+// To increase the number of bags, we make an http request
 // http://#IP_JEEDOM#/core/api/jeeApi.php?apikey=#APIKEY#&type=scenario&id=#ID#&action=#ACTION#
-// ACTION peut être start, stop, desaction ou activer
+// ACTION can be start, stop, desaction or activate
 
-byte mac[] = {0xDE,0xAD,0xBE,0xEF,0xFE,0xEF};  // mac address de l'arduino
-IPAddress ip(192,168,1,30);                   // si IP fixe pour l'Arduino
-IPAddress jeedom(192,168,1,20);               // adresse IP de Jeedom
-IPAddress mydns(192,168,1,254);               // adresse IP du DNS
-IPAddress mygateway(192,168,1,254);           // adresse IP de la passerelle
-IPAddress mymask(255,255,255,0);              // masque réseau
-EthernetClient RIKAclient;                      // on crée un client
+byte mac[] = {0xDE,0xAD,0xBE,0xEF,0xFE,0xEF};   // arduino mac address
+IPAddress ip(192,168,1,30);                     // fixed IP for the Arduino
+IPAddress jeedom(192,168,1,20);                 // jeedom ip address
+IPAddress mydns(192,168,1,254);                 // DNS IP address
+IPAddress mygateway(192,168,1,254);             // gateway IP address
+IPAddress mymask(255,255,255,0);                // network mask
+EthernetClient RIKAclient;                      // we create a client
 EthernetClient client;
 EthernetServer RIKAserveur = EthernetServer(port_serveur);
-// requete HTTP GET à envoyer à la centrale domotique
+
+// HTTP GET requests to send to the home automation unit
 const char requete[]="GET /core/api/jeeApi.php?apikey=xxxxxxxxxxxxxxxxxx&type=scenario&id=50&action=start HTTP/1.0";
-const char requeteDATE[]="GET / HTTP/1.0";  // requete HTTP juste pour obtenir la date
+const char requeteDATE[]="GET / HTTP/1.0";  // HTTP request just to get the date
 
 
-// VARIABLES GLOBALES
-String requetePoele= "";
+// GLOBAL VARIABLES
+String requetePoele="";
 volatile boolean requetePoeleComplete = false;
 String requeteUSB="";
 volatile boolean requeteUSBComplete = false;
 String dataHTTP="";
-bool old_b_status = 1;   // status du bouton de la trappe à granulés 1= fermé, 0= ouvert
+bool old_b_status=1;   // pellet trap button status 1= closed, 0= open
 long chrono_start=0;
 long chrono_stop=0;
 long duree_ouverture=0;
 unsigned char sacs_verses=0;
 
-unsigned char erreur=0;     // numero de l'erreur en cas de commande reçue via HTTP
+unsigned char erreur=0;     // error number in case of command received via HTTP
 String sms="NONE";
 String last_sms="NONE";
-String STATUS="AUCUN STATUS";
-const String numtel="+33123456789";
+String STATUS="NO STATUS";
+const String numtel="+32479123456";
 const String codepin="2107";
 String jour="70/01/01";
 String heure="01:00:00";
@@ -87,19 +89,19 @@ void clignote(unsigned char led, unsigned char repete, unsigned int delay_on, un
 }
 
 void getHTTPdate (void) {
-		// obtient la date en analysant la réponse HTTP d'un serveur
-		// afin de pouvoir dater à peu près correctement les SMS que le poele lira
-		// La date et l'heure sont en effet transmise lors d'une requete AT+CMGR
-		// (Il faudrait verifier si une date correcte est vraiment nécessaire pour le poele quand il reçoit un SMS)
+		// get the date by parsing the HTTP response from a server
+    // in order to be able to date the SMS that the stove will read more or less correctly
+    // The date and time are indeed transmitted during an AT+CMGR request
+    // (It should be checked if a correct date is really necessary for the stove when it receives an SMS)
 	   Serial.print("-> Date AA/MM/JJ: ");
-	   dataHTTP.remove(0,11);							// on enleve le nom du jour
-	   String day=dataHTTP.substring(0,2);   			// on récupère le jour
-	   dataHTTP.remove(0,3);  							// on supprime le jour et l'espace
-	   String month = dataHTTP.substring(0,3);  			// on récupère le mois
-	   dataHTTP.remove(0,4);  							// on supprime le mois et l'espace
-	   String year = dataHTTP.substring(0,4);			// on récupère l'année
+	   dataHTTP.remove(0,11);							        // we remove the name of the day
+	   String day=dataHTTP.substring(0,2);   			// we recover the day
+	   dataHTTP.remove(0,3);  							      // we delete the day and the space
+	   String month = dataHTTP.substring(0,3);  	// we get the month
+	   dataHTTP.remove(0,4);  							      // we delete the month and the space
+	   String year = dataHTTP.substring(0,4);			// we get the year
 	   year.remove(0,2);
-       dataHTTP.remove(0,5);								// on supprime l'année et l'espace
+       dataHTTP.remove(0,5);								    // delete the year and the space
        String hour = dataHTTP.substring(0,8);
 	   if (month == "Jan") {month="01";}
 	   else if (month == "Jan") {month="01";}
@@ -114,8 +116,8 @@ void getHTTPdate (void) {
 	   else if (month == "Oct") {month="10";}
 	   else if (month == "Nov") {month="11";}
 	   else if (month == "Dec") {month="12";}
-	   // on remplace l'heure et le jour avec les nouvelles données
-	   jour=year;   // année au format AA et non AAAA
+	   // we replace the hour and the day with the new data
+	   jour=year;   // year in format YY and not YYYY
 	   jour +="/";
 	   jour +=month;
 	   jour +="/";
@@ -126,19 +128,19 @@ void getHTTPdate (void) {
        Serial.println(heure);
 }
 
-void send_retour(void) {     // on envoie CR + LF au poele
+void send_retour(void) {      // we send CR + LF to the stove
     Serial1.write(char(13));
     Serial1.write(char(10));
 }
-void send_OK(void) {        // on envoie OK au poele
+void send_OK(void) {          // we send OK to the stove
     Serial1.print("OK");
-    Serial.println("-> Reponse : OK");
+    Serial.println("-> Response : OK");
     Serial.println();
     send_retour();
 }
-void send_ERROR(void) {
+void send_ERROR(void) {       // we send error to the stove
     Serial1.print("ERROR");
-    Serial.println("-> Réponse : ERROR");
+    Serial.println("-> Response : ERROR");
     Serial.println();
     send_retour();
 }
@@ -146,17 +148,17 @@ void send_ERROR(void) {
 ////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 void inc_nb_sacs(bool demandeDate){
-  //on previent jeedom
-  //si demandeDate = 0, on ne demande que la date
-  //si demandeDate = 1  on fait une vraie requete pour augmenter le nombre de sacs
+  // we warn jeedom
+  // if demandeDate = 0, only the date is requested
+  // if demandeDate = 1 we make a real request to increase the number of bags
   if (RIKAclient.connect(jeedom, 80)) {
-      Serial.println("-> Connecté à Jeedom");
+      Serial.println("-> Connected to jeedom");
       if (!demandeDate) {
-    	  RIKAclient.println(requeteDATE);  // requete uniquement pour la date
+    	  RIKAclient.println(requeteDATE);  // query only for date
     	  RIKAclient.println();
-    	  Serial.println("-> Recupération de la date via requete HTTP.");
+    	  Serial.println("-> Date retrieval via HTTP request.");
     	  dataHTTP="";
-    	  while(1)   {          // on récupère la réponse HTTP et on vérifie que c'est un code 200, et que la fin contient OK
+    	  while(1) {          // we retrieve the HTTP response and we check that it is a code 200, and that the end contains OK
     	  	  if (RIKAclient.available()) {
     	  		  char c = RIKAclient.read();
     	  		  //Serial.print(c);
@@ -175,13 +177,13 @@ void inc_nb_sacs(bool demandeDate){
     	  RIKAclient.stop();
       }
       else {
-    	  RIKAclient.println(requete);  // requete vers le compteur de sacs Jeedom
+    	  RIKAclient.println(requete);  // request to the Jeedom bag counter
 
 			  RIKAclient.println();
-			  Serial.println("-> Requete transmise.");
-			  Serial.print("-> Réponse HTTP : ");
+			  Serial.println("-> Request transmitted");
+			  Serial.print("-> HTTP response : ");
 			  dataHTTP="";
-			  while(1)   {          // on récupère la réponse HTTP et on vérifie que c'est un code 200, et que la fin contient OK
+			  while(1)   {          // we retrieve the HTTP response and we check that it is a code 200, and that the end contains OK
 				  if (RIKAclient.available()) {
 					  char c = RIKAclient.read();
 					  //Serial.print(c);
@@ -198,21 +200,21 @@ void inc_nb_sacs(bool demandeDate){
 					  }
 				  }
 				  if (!RIKAclient.connected()) {
-					  // on récupère les dernières données (après l'entete HTTP)
+					  // we retrieve the last data (after the HTTP header)
 					  while (RIKAclient.available()) {
 						  char c = RIKAclient.read();
 						  dataHTTP += c;
 					  }
-					  // On affiche les dernières donnees reçues
+					  // the last data received is displayed
 					  if (dataHTTP.startsWith("ok")) {
-						Serial.print("-> Sac pris en compte : ");
+						Serial.print("-> Bag taken into account : ");
 					  }
 					  else {
-						Serial.print("-> ERREUR : sac non pris en compte : ");
+						Serial.print("-> ERROR: bag not taken into account : ");
 					  }
 					  Serial.println(dataHTTP);
-					  // on ferme la connexion
-					  Serial.println("-> Déconnexion.");
+					  // we close the connection
+					  Serial.println("-> Disconnect.");
 					  RIKAclient.flush();
 					  RIKAclient.stop();
 					  break;
@@ -223,7 +225,7 @@ void inc_nb_sacs(bool demandeDate){
 			  }
       }
   } else {
-      Serial.println("Connexion impossible à Jeedom !");
+      Serial.println("Unable to connect to jeedom!");
       digitalWrite(led_erreur,HIGH);
       delay(500);
       digitalWrite(led_erreur, LOW);
@@ -232,9 +234,9 @@ void inc_nb_sacs(bool demandeDate){
 }
 /*
   SerialEvent occurs whenever a new data comes in the
- hardware serial RX.  This routine is run between each
- time loop() runs, so using delay inside loop can delay
- response.  Multiple bytes of data may be available.
+  hardware serial RX.  This routine is run between each
+  time loop() runs, so using delay inside loop can delay
+  response.  Multiple bytes of data may be available.
  */
 void serialEvent1() {
   while (Serial1.available()) {
@@ -250,7 +252,6 @@ void serialEvent1() {
   }
 }
 
-
 void serialEvent() {
   while (Serial.available()) {
     // get the new byte:
@@ -265,7 +266,7 @@ void serialEvent() {
   }
 }
 
-bool isDIGIT(String chaine) {  // verifie qu'une chaine ne contient que des nombres
+bool isDIGIT(String chaine) {  // checks that a string contains only numbers
   bool reponse = true;
   for (unsigned int i=0;i<chaine.length();i++) {
      reponse = reponse & isDigit(chaine[i]);
@@ -280,22 +281,23 @@ void sendEnteteHTTP(unsigned char type) {
 	client.println("Connection: close");  // the connection will be closed after completion of the response
 	client.println();
 }
+
 String sendDonneeHTTP(int num_erreur) {
 	String json="";
-	if (num_erreur) {						// erreur : on transmet le numero de l'erreur au format json
-		json="{\"commande\":";
+	if (num_erreur) {						// error: we transmit the error number in json format
+		json="{\"command\":";
 		json += String(num_erreur);
 		json += "}";
 		client.println(json);
 	} else {
-		if (dataHTTP=="status") {			// status : on transmet le status du poele, tel que reçu par SMS
+		if (dataHTTP=="status") {			// status: the status of the stove is transmitted, as received by SMS
 			json= json="{\"status\":\"";
 			json += STATUS;
 			json += "\"}";
 			client.println(json);
 		}
 		else {
-			json="{\"commande\":\"OK\"}";  // pas d'erreur : on transmet OK
+			json="{\"command\":\"OK\"}";  // no error: we transmit OK
 			client.println(json);
 		}
 	}
@@ -304,42 +306,42 @@ String sendDonneeHTTP(int num_erreur) {
 }
 
 void setup() {
-  // On prépare le port série
+  // Prepare the serial port
   Serial.begin(baudUSB);
   Serial1.begin(baudRIKA);
   Serial.println();
-  Serial.println("Démarrage simulateur modem Rika V1.1 ...");
+  Serial.println("Starting Rika V1.0 modem simulator ...");
   requetePoele.reserve(254);
   dataHTTP.reserve(512);
   requeteUSB.reserve(10);
   sms.reserve(100);
-  // On prépare les Entrées/Sorties
-  Serial.print("-> préparation E/S : ");
-  pinMode(53, OUTPUT);          // nécessaire pour faire fonctionner le shield Ethernet W5100 sur carte Mega1280 (ou 2560)
-  pinMode(4, OUTPUT);           // nécessaire pour désactiver la carte SD du shield Ethernet et activer Ethernet
-  digitalWrite(4,HIGH);         // nécessaire pour désactiver la carte SD du shield Ethernet et activer Ethernet
-  //pinMode(10, OUTPUT);           // nécessaire pour désactiver le port Ethernet et activer la carte SD
-  //digitalWrite(10,HIGH);         // nécessaire pour désactiver le port Ethernet et activer la carte SD
+  // We prepare the Inputs / Outputs
+  Serial.print("-> I/O preparation : ");
+  pinMode(53, OUTPUT);            // necessary to operate the W5100 Ethernet shield on a Mega1280 (or 2560) card
+  pinMode(4, OUTPUT);             // needed to disable Ethernet shield SD card and enable Ethernet
+  digitalWrite(4,HIGH);           // needed to disable Ethernet shield SD card and enable Ethernet
+  //pinMode(10, OUTPUT);          // needed to disable ethernet port and enable SD card
+  //digitalWrite(10,HIGH);        // needed to disable ethernet port and enable SD card
   pinMode(led_comm, OUTPUT);
   pinMode(led_erreur, OUTPUT);
   pinMode(led_sac, OUTPUT);
   pinMode(bouton, INPUT_PULLUP);
-  // on met les bons niveaux sur les sorties
-  digitalWrite(led_sac,LOW);
-  digitalWrite(led_comm,LOW);
-  digitalWrite(led_erreur,LOW);
+  // we put the right values on the outputs
+  digitalWrite(led_sac, LOW);
+  digitalWrite(led_comm, LOW);
+  digitalWrite(led_erreur, LOW);
   Serial.println("OK");
   clignote(led_comm,2,100,200);
 
-  // affichage des infos réseau
-  Serial.print("-> adresse IP : ");
+  // network info display
+  Serial.print("-> IP adress : ");
 #ifdef IPFIXE 
   Ethernet.begin(mac,ip,mydns,mygateway,mymask);
-  Serial.print(" IP FIXE !");  
+  Serial.print(" FIXED IP !");  
   delay(300);     
 #else
-  if (!Ethernet.begin(mac)) {                                   // adresse IP obtenue par DHCP
-    Serial.print(" ERREUR DHCP : impossible de continuer !");       
+  if (!Ethernet.begin(mac)) {                                   // IP address obtained by DHCP
+    Serial.print(" DHCP ERROR: Unable to continue !");
     while(1) {
       clignote(led_erreur,3,100,250);
       delay(500); 
@@ -348,9 +350,9 @@ void setup() {
 #endif
   Ethernet.hostName("RIKA");
   Serial.println(Ethernet.localIP());
-  Serial.print("-> Masque : ");
+  Serial.print("-> Mask : ");
   Serial.println(Ethernet.subnetMask());
-  Serial.print("-> Passerelle : ");
+  Serial.print("-> Gateway : ");
   Serial.println(Ethernet.gatewayIP());
   Serial.print("-> DNS : ");
   Serial.println(Ethernet.dnsServerIP());
@@ -358,22 +360,22 @@ void setup() {
   Serial.println(Ethernet.getHostName());
   clignote(led_erreur, 2,100,200);
   delay(1000);
-  Serial.print("-> serveur sur port ");
+  Serial.print("-> server on port ");
   Serial.print(port_serveur);
   Serial.print(" : ");
   RIKAserveur.begin();
   Serial.println("OK");
-  inc_nb_sacs(0);  // on fait une requete juste pour avoir la date
-  Serial.println("-> Système prêt !");
+  inc_nb_sacs(0);  // we make a request just to get the date
+  Serial.println("-> System ready !");
   Serial.println();
   clignote(led_sac,2,100,200);
-//fin de la boucle setup()
+//end of the setup() loop
 }
 
 void loop() {
-    // A-t-on appuyé sur le bouton ?
-    bool b_status = digitalRead(bouton);
-    if (b_status == 0) {  // trappe ouverte, faut il faire clignoter les LED pour indiquer qu'un sacs va être pris en compte ?
+    // did you press the button?
+    bool b_status = digitalRead(button);
+    if (b_status == 0) {  // hatch open, should the LEDs flash to indicate that a bag is going to be taken into account?
         duree_ouverture = (millis() - chrono_start) / 1000;
         if (duree_ouverture >=20 and duree_ouverture < 35) {
           clignote(led_sac, 1, 100,500);
@@ -383,20 +385,20 @@ void loop() {
           delay(500);
         }
     }
-    if (b_status != old_b_status) {  // changement d'état
-        delay(50);    //petit delai anti rebond
+    if (b_status != old_b_status) {  // change of state
+        delay(50);    //small anti-bounce delay
         if (b_status == 0) {
             duree_ouverture = 0;
             old_b_status= b_status;
             chrono_start=millis();
             //Serial.println(chrono_start,DEC);
             Serial.println();
-            Serial.println("Ouverture de la réserve ...");
+            Serial.println("Opening of the reserve ...");
         }
         else {
           old_b_status=b_status;
-          Serial.println("-> Fermeture de la réserve ...");
-          Serial.print("-> Durée : ");
+          Serial.println("-> Closure of the reserve ...");
+          Serial.print("-> Duration : ");
           chrono_stop = millis();
           //Serial.println(chrono_stop,DEC);
           duree_ouverture = (chrono_stop - chrono_start) / 1000;
@@ -413,13 +415,13 @@ void loop() {
           if (sacs_verses) {
             Serial.print("-> ");
             Serial.print(sacs_verses);
-            if (sacs_verses >1) {Serial.println(" sacs versés");} else {Serial.println(" seul sac versé");}
+            if (sacs_verses >1) {Serial.println(" shed bags");} else {Serial.println(" single bag shed");}
             for (int i=0; i<sacs_verses; i++) {
-                inc_nb_sacs(1);      // on transmet l'info à la centrale domotique (requete HTTP)
+                inc_nb_sacs(1);      // the information is transmitted to the home automation unit (HTTP request)
             }
           } else {
-            Serial.println("-> Aucun sac versé (ouverture trop brève ou trop longue).");
-            Serial.println(); 
+            Serial.println("-> No bag poured (opening too short or too long).");
+            Serial.println();
           }
       }
        
@@ -427,50 +429,50 @@ void loop() {
        
     }
 
-    //A-t-on reçu une requete venant du poele ?
+    // have you received a request from the stove?
     if (requetePoeleComplete) {
-        Serial.print("Reçu : ");
+        Serial.print("Received : ");
         Serial.print(requetePoele);
         digitalWrite(led_comm,HIGH);
         delay(100);
         digitalWrite(led_comm,LOW);
-        // Il reste maintenant à traiter cette requete
-        if (requetePoele.startsWith("AT+CMGS")) {      // le poele veut envoyer un SMS
-            // on donne l'invite >
+        // it now remains to process this request
+        if (requetePoele.startsWith("AT+CMGS")) {      // the stove wants to send an SMS
+            // we give the prompt >
             send_retour();
             Serial1.write(">");
-            //Affichage
-            Serial.write("-> Envoi SMS ");
+            // display
+            Serial.write("-> SMS sending ");
             Serial.write("-> Message : ");
-            // on récupère le contenu du SMS
-            delay(2000); // delai pour laisser un peu de temps au poele pour répondre
+            // we retrieve the content of the SMS
+            delay(2000); // time limit to allow the stove some time to respond
             STATUS="";
             recu=0;
             while (recu !=char(26)) {
                 if (Serial1.available()) {
                     recu = (char)Serial1.read();
-                    if (recu != char(26)) {   // ctrl+z (ASCII 26) pour finir le SMS
+                    if (recu != char(26)) {   // ctrl+z (ASCII 26) to end the SMS
                         STATUS+=recu;
                     }
                 }
             }
-            //Affichage
+            // display
             Serial.println(STATUS);
             Serial.println("-> +CMGS : 01");
-            //reponse
+            // reponse
             send_retour();
             Serial1.print("+CMGS : 01");
             send_retour();
             send_OK();
         }
-        else if (requetePoele.startsWith("AT+CMGR")) {      // le poele veut lire un SMS
-            //affichage
-            Serial.print("-> Lecture SMS ");
+        else if (requetePoele.startsWith("AT+CMGR")) {      // the stove wants to read an SMS
+            // display
+            Serial.print("-> SMS reading ");
             Serial.print("-> Message : ");
             Serial.println(sms);
             if (sms != "NONE") {
                 //Serial.println();
-            	inc_nb_sacs(0); // fausse requete pour obtenir la date réelle
+            	inc_nb_sacs(0); // false request to get the real date
             	Serial.print("-> +CMGR: \"REC READ\",\"");
                 Serial.print(numtel);
                 Serial.print("\",,\"");
@@ -482,7 +484,7 @@ void loop() {
                 Serial.print(codepin);
                 Serial.print(" ");
                 Serial.println(sms);
-                // message pour le poele
+                // message for the stove
                 send_retour();
                 Serial1.print("+CMGR: \"REC READ\",\"");
                 Serial1.print(numtel);
@@ -499,21 +501,21 @@ void loop() {
                 send_retour();
                 send_OK();
                 
-            } else {                  // le SMS est none : on n'a aucune commande à transmettre
+            } else {                  // the SMS is none: we have no command to send
                 send_retour();
                 send_OK();
             }
         }
-        else if (requetePoele.startsWith("AT+CMGD")) {      // le poele veut efface les SMS
+        else if (requetePoele.startsWith("AT+CMGD")) {      // the stove wants to delete the SMS
             last_sms=sms;
             sms="NONE";
-            Serial.print("-> effacement SMS  ");
+            Serial.print("-> SMS deletion  ");
             Serial.print("-> Message : ");
             Serial.println(sms);
             send_OK();
             
         }
-        else if (requetePoele.startsWith("ATE0") or requetePoele.startsWith("AT+CNMI")  or requetePoele.startsWith("AT+CMGF") ) {  // requete de paramètrage : on répond OK sans poser de questions
+        else if (requetePoele.startsWith("ATE0") or requetePoele.startsWith("AT+CNMI")  or requetePoele.startsWith("AT+CMGF") ) {  // configuration request: we answer OK without asking questions
             send_OK();
         }
         else if (requetePoele!="" && requetePoele!="\n" && requetePoele!="\x1A" && requetePoele!= "\x0D" ) {
@@ -522,15 +524,15 @@ void loop() {
            delay(500);
            digitalWrite(led_erreur,LOW);
         }
-        // on remet tout à zéro pour la prochaine requete
+        // we reset everything for the next request
         requetePoele= "";
         requetePoeleComplete = false;
     }
 
-    // A-t-on reçu une requete http sur le serveur ?
+    // did we receive an http request on the server?
     client = RIKAserveur.available();
     if (client) {
-        Serial.println("Requete HTTP reçue ...");
+        Serial.println("HTTP request received ...");
         Serial.print("-> Date : ");
         Serial.print(jour);
         Serial.print(" ");
@@ -546,12 +548,12 @@ void loop() {
                   //Serial.println(dataHTTP);
                   if (dataHTTP.startsWith("GET /")) {
                       Serial.println("-> GET ");
-                      Serial.print("-> commande : ");
+                      Serial.print("-> command : ");
                       dataHTTP.remove(0,5);
                       char i=dataHTTP.indexOf(" ");
                       if (i) {dataHTTP.remove(i);}
                       Serial.println(dataHTTP);
-                      // on va réagir en fonction de la commande reçue
+                      // we will react according to the command received
                       if (dataHTTP.startsWith("ON"))  {
                         dataHTTP="ON";
                         erreur=0;
@@ -581,7 +583,7 @@ void loop() {
                     	erreur=0;			
                       }
                       else if (dataHTTP.startsWith("r"))  {
-                        // on récupère le nombre derrière, et on verifie qu'il est valide
+                        // we retrieve the number behind, and we check that it is valid
                         dataHTTP.remove(0,1);
                         String nombre=dataHTTP;
                         //Serial.print(nombre);
@@ -591,16 +593,16 @@ void loop() {
                             if (valeur < 5) {valeur=5;}
                             if (valeur > 28) {valeur=28;}
                             //Serial.println(valeur);
-                            // on reconstruit la commande correctement
+                            // we rebuild the command correctly
                             dataHTTP="r";
                             dataHTTP += String(valeur, DEC);
                             erreur=0;
                         }
-                        else {erreur=1;}  // si problème dans le nombre
+                        else {erreur=1;}  // if problem in the number
 
                       }
                       else if (dataHTTP.startsWith("h")) {
-                        // on récupère le nombre derrière, et on verifie qu'il est valide
+                        // we retrieve the number behind, and we check that it is valid
                         dataHTTP.remove(0,1);
                         String nombre=dataHTTP;
                         //Serial.print(nombre);
@@ -611,12 +613,12 @@ void loop() {
                             if (valeur > 100) {valeur=100;}
                             valeur=(valeur/5)*5;
                             //Serial.println(valeur);
-                            // on reconstruit la commande correctement
+                            // we rebuild the command correctly
                             dataHTTP="h";
                             dataHTTP += String(valeur, DEC);
                             erreur=0;
                         }
-                        else {erreur=1;}  // valeur par défaut si problème dans le nombre
+                        else {erreur=1;}  // default value if problem in the number
 
 
 
@@ -624,111 +626,97 @@ void loop() {
                      else {
                         erreur=2;
                      }
-                     if (!erreur) {				// message reçu conforme
-                        if (dataHTTP != "status") {  // si la commande n'était pas "status", on envoie un SMS au poele
+                     if (!erreur) {				// correct message received
+                        if (dataHTTP != "status") {  // if the command was not "status", an SMS is sent to the stove
                         	sms=dataHTTP;
-                        	Serial.print("-> SMS à transmettre au poele : ");
+                        	Serial.print("-> SMS to send to the stove : ");
                         	Serial.println(sms);
                         }
 
-                        sendEnteteHTTP(1);								// on transmet l'entete
-                        Serial.print("-> Réponse HTTP envoyée : ");
-                        Serial.println(sendDonneeHTTP(erreur));			// on transmet la réponse
-                        Serial.println("-> Déconnexion");
+                        sendEnteteHTTP(1);								// we send the header
+                        Serial.print("-> HTTP response sent : ");
+                        Serial.println(sendDonneeHTTP(erreur));			// send the response
+                        Serial.println("-> Disconnected");
                         client.flush();
-                        client.stop();									// on ferme la connexion
+                        client.stop();									// we close the connection
                         Serial.println();
 
                      } else {
                         
                         if (erreur ==1) {
-                          Serial.print("-> erreur n°");
+                          Serial.print("-> error no.");
                           Serial.print(erreur);
-                          Serial.print(" - nombre invalide ");
+                          Serial.print(" - invalid number ");
                           Serial.println(dataHTTP);
                         }
                         else if (erreur ==2) {
-                          Serial.print("-> erreur n°");
+                          Serial.print("-> error no.");
                           Serial.print(erreur);
-                          Serial.print(" - commande invalide ");
+                          Serial.print(" - invalid command ");
                           Serial.println(dataHTTP);
                         }
                         digitalWrite(led_erreur,HIGH);
                         delay(500);
                         digitalWrite(led_erreur,LOW);
-                        Serial.println("-> Aucun SMS transmis");
-                        sendEnteteHTTP(1);								// on transmet l'entete
-                        Serial.print("-> Réponse HTTP envoyée : ");
-                        Serial.println(sendDonneeHTTP(erreur));			// on transmet la réponse
-                        Serial.println("-> Déconnexion");
+                        Serial.println("-> No SMS transmitted");
+                        sendEnteteHTTP(1);								// we send the header
+                        Serial.print("-> HTTP response sent : ");
+                        Serial.println(sendDonneeHTTP(erreur));			// send the response
+                        Serial.println("-> Disconnected");
                         client.flush();
-                        client.stop();									// on ferme la connexion
+                        client.stop();									// we close the connection
                         Serial.println();
                      }
-
-
                   }
                   dataHTTP="";
               } else {
                   dataHTTP += c;
               }
-
-
-
-
           }
-
         }
-
     }
     client.stop();
 
 
-
-
-    // A-t-on reçu une requete via le port USB ?
+    // did we receive a request via the USB port?
     if (requeteUSBComplete) {
         digitalWrite(led_comm,HIGH);
         delay(100);
         digitalWrite(led_comm,LOW);
         if (requeteUSB.startsWith("IP")) {
-            Serial.print("L'adresse IP est : ");
+            Serial.print("The IP address is : ");
             Serial.println(Ethernet.localIP());
             Serial.println();
         }
         else if (requeteUSB.startsWith("SMS")) {
-            Serial.println("Le dernier SMS envoyé au poele est :");
+            Serial.println("The last SMS sent to the stove is :");
             Serial.println(last_sms);
             Serial.println();
         }
         else if (requeteUSB.startsWith("STATUS")) {
-            Serial.println("Le dernier STATUS reçu du poele est :");
+            Serial.println("The last STATUS received from the stove is :");
             Serial.println(STATUS);
             Serial.println();
         }
-        else if (requeteUSB.startsWith("SAC")) {
-            Serial.println("Ajout d'un sac ...");
+        else if (requeteUSB.startsWith("BAG")) {
+            Serial.println("Adding a bag ...");
             inc_nb_sacs(1);
             Serial.println();
         }
         else
         {
             Serial.println("Menu :");
-            Serial.println("IP  -> affiche l'adresse IP");
-            Serial.println("SMS -> affiche le dernier SMS envoyé ou reçu");
-            Serial.println("SAC -> ajout d'un sac pour Jeedom");
+            Serial.println("IP  -> show IP address");
+            Serial.println("SMS -> displays the last SMS sent or received");
+            Serial.println("BAG -> added bag for Jeedom");
             Serial.println();
             digitalWrite(led_erreur,HIGH);
             delay(500);
             digitalWrite(led_erreur,LOW);
         }
-
-        // on remet le buffer à zéro
+        // we reset the buffer to zero
         requeteUSBComplete=false;
         requeteUSB="";
     }
-
-
-// fin de la boucle loop()
+// end of the loop() loop
 }
-

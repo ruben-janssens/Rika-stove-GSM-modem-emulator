@@ -1,15 +1,12 @@
+# Rika-stove-GSM-modem-emulator
 
+Allows you to simulate the GSM modem of a Rika Revo pellet stove. Connected via Ethernet, it becomes possible to control the stove with a home automation system.
 
-# Rika-REVO-GMS-emulator
-Permet de simuler le modem GSM d'un poêle à granule Rika Revo. Connecté en Ethernet, il devient possible de piloter le poêle avec un système domotique.
+NOTE: The .ino file has been perfectly functional for 2 years with me. It corresponds to the firmware of my stove, there is no guarantee of operation with more recent Rika stoves, nor with an identical stove but with a different firmware. (This was written by the owner)
 
-REMARQUE : le fichier .ino est parfaitement fonctionnel depuis 2 ans chez moi. Il correspond au firmware de mon poële, il n'y a aucune garantie de fonctionnement avec des poeles Rika plus récent, ni avec un poele identique mais avec un firmware différent.
-
-Nécessite : 
-- une carte ARDUINO à base de ATMega128
-- un shield Ethernet
-- une prise RS232 (voir schéma de cablage)
+Requirements :
+- an ARDUINO board based on ATMega128
+- an Ethernet shield
+- an RS232 socket (see wiring diagram)
 - 3 LED
-- une alimentation
-
-Ce fichier Readme est en cours de rédaction ....
+- A power supply
