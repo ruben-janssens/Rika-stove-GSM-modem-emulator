@@ -151,7 +151,7 @@ void loop() {
       // Stove wants to read message
       if (myCommand != "") {
         // We have something for the stove
-
+        sendReturnChars();
         Serial.print("+CMGR: \"REC UNREAD\",\"");
         Serial.print(phoneNumber);
         Serial.print("\",,\"");
