@@ -1,0 +1,49 @@
+esphome:
+  name: rika
+
+esp8266:
+  board: nodemcuv2
+
+# Enable logging
+logger:
+  level: VERBOSE
+  baud_rate: 0
+
+# Enable Home Assistant API
+api:
+  password: ""
+
+ota:
+  password: ""
+
+wifi:
+  ssid: !secret SECRET_SSID
+  password: !secret SECRET_PASS
+
+captive_portal:
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+external_components:
+  - source:
+      type: local
+      path: components
+
+climate:
+- platform: rika_gsm_mod
+  id: rika_stove
+  name: Stoof
+
+uart:
+  tx_pin:
+    number: 1
+    inverted: true
+  rx_pin:
+    number: 3
+    inverted: true
+  baud_rate: 115200
+  debug:
+    direction: BOTH
+    dummy_receiver: true

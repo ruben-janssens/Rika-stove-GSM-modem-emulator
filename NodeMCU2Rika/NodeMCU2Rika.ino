@@ -103,14 +103,6 @@ void sendOK() {
   sendReturnChars();
 }
 
-bool isNumeric(String input) {
-  bool valid = true;
-  for (int i = 0; i < input.length(); i++) {
-     valid = isDigit(input[i]);
-  }
-  return valid;
-}
-
 void setup() {
   Serial.begin(115200, SERIAL_8N1, SERIAL_FULL, TX, true);
   WiFi.mode(WIFI_STA);
@@ -125,7 +117,6 @@ void setup() {
   WebSerial.begin(&server);
   WebSerial.msgCallback(recvMsg);
   server.begin();
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 }
 
 void loop() {
