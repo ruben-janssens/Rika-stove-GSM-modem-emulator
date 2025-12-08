@@ -11,7 +11,7 @@ DEPENDENCIES = ['uart']
 rika_gsm_mod_ns = cg.esphome_ns.namespace('rika_gsm_mod')
 RikaGSMClimatePollingComponent = rika_gsm_mod_ns.class_('RikaGSMClimatePollingComponent', cg.PollingComponent, uart.UARTDevice)
 
-CONFIG_SCHEMA = climate.CLIMATE_SCHEMA.extend({
+CONFIG_SCHEMA = climate._CLIMATE_SCHEMA.extend({
     cv.GenerateID(): cv.declare_id(RikaGSMClimatePollingComponent),
     cv.GenerateID(CONF_TIME_ID): cv.use_id(time.RealTimeClock),
 }).extend(cv.polling_component_schema("70s")).extend(uart.UART_DEVICE_SCHEMA)
