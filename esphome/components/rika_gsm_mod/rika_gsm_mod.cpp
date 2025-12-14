@@ -130,8 +130,8 @@ namespace esphome
         else if (esphome::str_startswith(this->rikaSerialCmdIn, ATCMGS))
         {
           ESP_LOGW(TAG, "Start response");
-          // this->sendReturnChars();
-          // this->write_str(">");
+          this->sendReturnChars();
+          this->write_str(">");
           delay_microseconds_safe(500);
           while (!this->rikaSerialSmsInReady)
           {
