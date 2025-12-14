@@ -146,6 +146,8 @@ namespace esphome
               }
             }
           }
+          // Convert to lowercase to handle all kinds of sms versions
+          this->rikaSerialSmsIn = esphome::str_lower_case(this->rikaSerialSmsIn);
           this->sendReturnChars();
           this->write_str("+CMGS : 1");
           this->sendReturnChars();
@@ -153,12 +155,12 @@ namespace esphome
 
           ESP_LOGW(TAG, "Received: %s", this->rikaSerialSmsIn.c_str());
 
-          if (esphome::str_startswith(this->rikaSerialSmsIn, "STOVE ON"))
+          if (esphome::str_startswith(this->rikaSerialSmsIn, "stove on"))
           {
             this->action = climate::CLIMATE_ACTION_HEATING;
             this->mode = climate::CLIMATE_MODE_HEAT;
 
-            std::size_t foundManualMode = this->rikaSerialSmsIn.find("MANUAL MODE");
+            std::size_t foundManualMode = this->rikaSerialSmsIn.find("manual mode");
             if (foundManualMode != std::string::npos)
             {
               std::size_t foundPercentage = this->rikaSerialSmsIn.find("%", foundManualMode);
@@ -169,17 +171,17 @@ namespace esphome
               }
             }
           }
-          else if (esphome::str_startswith(this->rikaSerialSmsIn, "STOVE OFF"))
+          else if (esphome::str_startswith(this->rikaSerialSmsIn, "stove off"))
           {
             this->action = climate::CLIMATE_ACTION_OFF;
             this->mode = climate::CLIMATE_MODE_OFF;
           }
 
           // Check for room temperature
-          std::size_t foundRT = this->rikaSerialSmsIn.find("RT: ");
+          std::size_t foundRT = this->rikaSerialSmsIn.find("rt:");
           if (foundRT != std::string::npos)
           {
-            std::string degrees = this->rikaSerialSmsIn.substr(foundRT + 4, 2);
+            std::string degrees = this->rikaSerialSmsIn.substr(foundRT + 3, 4);
             this->current_temperature = std::stof(degrees);
           }
 
