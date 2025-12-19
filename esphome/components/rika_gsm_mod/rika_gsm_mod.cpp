@@ -43,6 +43,7 @@ namespace esphome
 
     void RikaGSMClimatePollingComponent::control(const climate::ClimateCall &call)
     {
+      ESP_LOGW(TAG, "Control call. Currently in processing request: %s", this->processingRequest ? "true" : "false");
       if (!this->processingRequest)
       {
         bool has_mode = call.get_mode().has_value();
