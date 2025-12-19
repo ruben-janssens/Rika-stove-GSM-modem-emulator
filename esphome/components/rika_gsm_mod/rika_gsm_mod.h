@@ -52,9 +52,15 @@ namespace esphome
       std::string myCommand{""};
       bool processingRequest{false};
 
+      uint32_t processingRequestStartTime{0};
+      static const uint32_t PROCESSING_TIMEOUT_MS = 30000; // 30 seconds
+
       void resetSerialSmsIn();
       void sendOK();
       void sendReturnChars();
+      void resetProcessingState();
+      bool isProcessingTimedOut();
+      void startProcessingTimer();
     };
   }
 }

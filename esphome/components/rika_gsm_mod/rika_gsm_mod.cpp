@@ -43,6 +43,12 @@ namespace esphome
 
     void RikaGSMClimatePollingComponent::control(const climate::ClimateCall &call)
     {
+      // Check for timeout and auto-reset
+      if (this->isProcessingTimedOut()) {
+        ESP_LOGW(TAG, "Processing request timed out, resetting state");
+        this->resetProcessingState();
+      }
+      
       ESP_LOGW(TAG, "Control call. Currently in processing request: %s", this->processingRequest ? "true" : "false");
       if (!this->processingRequest)
       {
@@ -77,6 +83,13 @@ namespace esphome
 
     void RikaGSMClimatePollingComponent::loop()
     {
+      // Check for timeout at the start
+      if (this->isProcessingTimedOut()) {
+        ESP_LOGW(TAG, "Processing timed out in loop, resetting");
+        this->resetProcessingState();
+        // Continue processing - don't skip this cycle
+      }
+      
       while (this->available())
       {
         uint8_t inChar;
@@ -106,6 +119,7 @@ namespace esphome
           if (this->myCommand != "")
           {
             this->processingRequest = true;
+            this->startProcessingTimer(); // Start timeout timer
             ESP_LOGW(TAG, "My command: %s", this->myCommand.c_str());
 
             this->sendReturnChars();
@@ -134,7 +148,8 @@ namespace esphome
           this->sendReturnChars();
           this->write_str(">");
           delay_microseconds_safe(500);
-          while (!this->rikaSerialSmsInReady)
+          uint32_t waitStartTime = millis();
+          while (!this->rikaSerialSmsInReady && (millis() - waitStartTime) < 3000)
           {
             if (this->available())
             {
@@ -146,6 +161,15 @@ namespace esphome
                 this->rikaSerialSmsInReady = true;
               }
             }
+          }
+
+          if (!this->rikaSerialSmsInReady)
+          {
+            ESP_LOGW(TAG, "Timeout waiting for SMS response after 3 seconds");
+            // Don't reset processingRequest here - let timeout mechanism handle it
+            this->rikaSerialCmdIn = "";
+            this->rikaSerialCmdInReady = false;
+            return;
           }
           // Convert to lowercase to handle all kinds of sms versions
           this->rikaSerialSmsIn = esphome::str_lower_case(this->rikaSerialSmsIn);
@@ -204,6 +228,12 @@ namespace esphome
 
     void RikaGSMClimatePollingComponent::update()
     {
+      // Check for timeout before processing
+      if (this->isProcessingTimedOut()) {
+        ESP_LOGW(TAG, "Processing timed out during update, resetting");
+        this->resetProcessingState();
+      }
+      
       if (!this->processingRequest && this->myCommand == "")
       {
         this->myCommand = "?";
@@ -222,6 +252,29 @@ namespace esphome
     {
       this->write_byte(ASCII_CR);
       this->write_byte(ASCII_LF);
+    }
+
+    void RikaGSMClimatePollingComponent::resetProcessingState()
+    {
+      ESP_LOGW(TAG, "Processing request timed out after %lu ms - resetting", 
+               millis() - this->processingRequestStartTime);
+      this->processingRequest = false;
+      this->rikaSerialCmdInReady = false;
+      this->rikaSerialSmsInReady = false;
+      this->rikaSerialCmdIn = "";
+      this->rikaSerialSmsIn = "";
+      this->processingRequestStartTime = 0;
+    }
+
+    bool RikaGSMClimatePollingComponent::isProcessingTimedOut()
+    {
+      if (!this->processingRequest) return false;
+      return (millis() - this->processingRequestStartTime) > PROCESSING_TIMEOUT_MS;
+    }
+
+    void RikaGSMClimatePollingComponent::startProcessingTimer()
+    {
+      this->processingRequestStartTime = millis();
     }
 
     void RikaGSMClimatePollingComponent::dump_config()
